@@ -169,22 +169,72 @@ func (s *Sigma) RemoteSign(keyHost string, authToken *AuthToken) (SignResponse, 
 	return SignResponse{}, nil
 }
 
-func (s *Sigma) Verify() bool {
-	if s.sig.Signature == "" || s.sig.Address == "" {
-		fmt.Println("signature or address is missing")
-		return false
-	}
-
-	// Ensure the signature and message hash are in the correct format for VerifyMessage
-	signatureStr := s.sig.Signature
-	messageHashStr := base64.StdEncoding.EncodeToString(s.GetMessageHash())
-
-	err := bitcoin.VerifyMessage(s.sig.Address, signatureStr, messageHashStr)
+// GetSig gets the target instance and returns its values
+func (s *Sigma) GetSig(script *bscript.Script) (*Sig, error) {
+	output := s.getTargetTxOut()
+	outputScript := output.LockingScript
+	scriptChunks, err := bscript.DecodeStringParts(outputScript.String())
 	if err != nil {
-		fmt.Printf("error verifying signature: %v\n", err)
+		return nil, err
+	}
+	var instances []SignResponse
+	for i, chunk := range scriptChunks {
+
+		// check if the chunk is the sigmaHex
+		if i == 0 && strings.EqualFold(string(chunk), sigmaHex) {
+
+			// decode from hex
+			algo := Algorithm(hex.EncodeToString(scriptChunks[i+1]))
+
+			address := hex.EncodeToString(scriptChunks[i+2])
+
+			signature := hex.EncodeToString(scriptChunks[i+3])
+
+			vin, err := strconv.Atoi(string(scriptChunks[i+4]))
+			if err != nil {
+				return nil, err
+			}
+
+			instances = append(instances, SignResponse{
+
+				Sig: Sig{
+					Algorithm: algo,
+					Address:   address,
+					Signature: signature,
+					Vin:       vin,
+				},
+			})
+
+			// fast forward to the next possible instance position
+			// 3 fields + 1 extra for the "|" separator
+			i += 4
+		}
+	}
+	// if len(instances) == 0 {
+	// 	return this._sig
+	//  }
+	instance := instances[s.GetSigInstancePosition()]
+	return &instance.Sig, nil
+}
+
+func (s *Sigma) Verify() bool {
+	script := s.transaction.Outputs[s.targetVout].LockingScript
+	sig, err := s.GetSig(script)
+
+	if err != nil {
+		fmt.Println("Error parsing script:", err)
 		return false
 	}
 
+	s.sig = *sig
+
+	msgHash := s.GetMessageHash()
+	msgHashHex := hex.EncodeToString(msgHash)
+	err = bitcoin.VerifyMessage(s.sig.Address, s.sig.Signature, msgHashHex)
+	if err != nil {
+		fmt.Printf("Error verifying signature: %v\n", err)
+		return false
+	}
 	return true
 }
 
@@ -296,10 +346,13 @@ func (s *Sigma) GetSigInstancePosition() int {
 	}
 
 	script := output.LockingScript
-	scriptChunks := strings.Split(script.String(), " ")
+
+	asm, _ := script.ToASM()
+	scriptChunks := strings.Split(asm, " ")
 
 	for i, chunk := range scriptChunks {
-		if strings.ToUpper(chunk) == sigmaHex {
+
+		if strings.EqualFold(chunk, sigmaHex) {
 			return i
 		}
 	}

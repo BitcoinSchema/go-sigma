@@ -33,8 +33,7 @@ func setupTx() *bt.Tx {
 }
 
 func TestSigma(t *testing.T) {
-	// ... Your other setup code ...
-
+	// ... Your setup code ...
 	tx := setupTx()
 
 	t.Run("signs and verifies a message correctly", func(t *testing.T) {

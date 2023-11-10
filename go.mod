@@ -1,6 +1,6 @@
 module github.com/bitcoinschema/go-sigma
 
-go 1.21.3
+go 1.18
 
 require (
 	github.com/bitcoinschema/go-bpu v0.1.3

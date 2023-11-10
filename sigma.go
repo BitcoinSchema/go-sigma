@@ -17,6 +17,7 @@ import (
 
 type Algorithm string
 
+const Prefix = "SIGMA"
 const sigmaHex = "5349474d41"
 const (
 	BSM Algorithm = "BSM"

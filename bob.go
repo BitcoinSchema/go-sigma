@@ -6,15 +6,15 @@ import (
 	"github.com/bitcoinschema/go-bpu"
 )
 
-func NewSigFromTape(tape bpu.Tape) (s *Sig) {
+func NewSigFromTape(tape bpu.Tape, vout int) (s *Sig) {
 	s = new(Sig)
-	s.FromTape(tape)
+	s.FromTape(tape, vout)
 	return
 }
 
 // FromTape takes a BOB Tape and returns an Aip data structure.
 // Using the FromTape() alone will prevent validation (data is needed via SetData to enable)
-func (s *Sig) FromTape(tape bpu.Tape) {
+func (s *Sig) FromTape(tape bpu.Tape, vout int) {
 
 	// Not a valid tape?
 	if len(tape.Cell) < 4 {
@@ -35,6 +35,7 @@ func (s *Sig) FromTape(tape bpu.Tape) {
 	if !found || len(tape.Cell) < 5 {
 		return
 	}
+	s.TargetVout = vout
 	// Set the SIGMA fields
 	if tape.Cell[startIndex+1].S != nil {
 		s.Algorithm = Algorithm(*tape.Cell[startIndex+1].S)

@@ -2,7 +2,10 @@ module github.com/bitcoinschema/go-sigma
 
 go 1.21.3
 
-require github.com/libsv/go-bt/v2 v2.2.5
+require (
+	github.com/bitcoinschema/go-bpu v0.1.3
+	github.com/libsv/go-bt/v2 v2.2.5
+)
 
 require (
 	github.com/bitcoinsv/bsvd v0.0.0-20190609155523-4c29707f7173 // indirect

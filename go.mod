@@ -19,5 +19,5 @@ require (
 	github.com/libsv/go-bk v0.1.6
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/stretchr/testify v1.8.4
-	golang.org/x/crypto v0.13.0 // indirect
+	golang.org/x/crypto v0.17.0 // indirect
 )

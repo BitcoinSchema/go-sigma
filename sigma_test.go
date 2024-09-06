@@ -4,72 +4,264 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/bitcoinschema/go-bitcoin/v2"
-	"github.com/libsv/go-bt/v2"
-	"github.com/libsv/go-bt/v2/bscript"
-	"github.com/stretchr/testify/assert"
+	"github.com/bitcoin-sv/go-sdk/chainhash"
+	ec "github.com/bitcoin-sv/go-sdk/primitives/ec"
+	hash "github.com/bitcoin-sv/go-sdk/primitives/hash"
+	"github.com/bitcoin-sv/go-sdk/script"
+	"github.com/bitcoin-sv/go-sdk/transaction"
+	"github.com/stretchr/testify/require"
 )
 
-func setupTx() *bt.Tx {
+func setupTx() *transaction.Transaction {
 	// Adjust this setup to match your TypeScript test setup
 	outputScriptAsm := "OP_0 OP_RETURN " + hex.EncodeToString([]byte("pushdata1")) + " " + hex.EncodeToString([]byte("pushdata2"))
-	script, _ := bscript.NewFromASM(outputScriptAsm)
-	tx := bt.NewTx()
-	tx.AddOutput(&bt.Output{
+	script, _ := script.NewFromASM(outputScriptAsm)
+	tx := transaction.NewTransaction()
+	tx.AddOutput(&transaction.TransactionOutput{
 		Satoshis:      0,
 		LockingScript: script,
 	})
 
-	// we must add an input
-	tx.Inputs = append(tx.Inputs, (&bt.Input{
-		PreviousTxSatoshis: 0,
-		PreviousTxScript:   script,
-		PreviousTxOutIndex: 0,
-		SequenceNumber:     0,
-		UnlockingScript:    &bscript.Script{},
-	}))
-
+	txid, _ := chainhash.NewHash(hash.Sha256d([]byte("your-test-txid")))
+	tx.AddInput(&transaction.TransactionInput{
+		SourceTXID: txid,
+	})
 	return tx
 }
 
-func TestSigma(t *testing.T) {
-	// ... Your setup code ...
-	tx := setupTx()
+func TestSignsAndVerifiesMessageCorrectly(t *testing.T) {
+	privateKey, _ := ec.NewPrivateKey() //ec.PrivateKeyFromWif("KzmFJcMXHufPNHixgHNwXBt3mHpErEUG6WFbmuQdy525DezYAi82")
+	// privateKey2, _ := ec.PrivateKeyFromWif("L1U5FS1PzJwCiFA43hahBUSLytqVoGjSymKSz5WJ92v8YQBBsGZ1")
 
-	t.Run("signs and verifies a message correctly", func(t *testing.T) {
-		sigma := NewSigma(*tx, 0, 0, -1)
-		pk, err := bitcoin.CreatePrivateKey()
-		assert.Nil(t, err)
+	t.Run("Signs and verifies a message correctly", func(t *testing.T) {
+		tx := setupTx()
+		sigma := NewSigma(*tx, 0, 0, 0)
+		sigma.Sign(privateKey)
 
-		signResp := sigma.Sign(pk)
-		assert.NotNil(t, signResp.SigmaScript)
-		assert.Equal(t, "your-test-signature", signResp.Signature)
-		isValid := sigma.Verify()
-		assert.True(t, isValid)
+		require.True(t, sigma.Verify())
 	})
-
-	// ... Your other test cases ...
 }
 
-// func TestGenerateOutputScript(t *testing.T) {
-// 	// ... Your setup code ...
+// describe("Sigma Protocol", () => {
+// 	// Test data
+// 	const privateKey = PrivateKey.fromWif(
+// 	  "KzmFJcMXHufPNHixgHNwXBt3mHpErEUG6WFbmuQdy525DezYAi82"
+// 	);
+// 	const privateKey2 = PrivateKey.fromWif(
+// 	  "L1U5FS1PzJwCiFA43hahBUSLytqVoGjSymKSz5WJ92v8YQBBsGZ1"
+// 	);
 
-// 	tx := setupTx()
+// 	const outputScriptAsm = `OP_0 OP_RETURN ${Buffer.from(
+// 	  "pushdata1",
+// 	  "utf-8"
+// 	).toString("hex")} ${Buffer.from("pushdata2", "utf-8").toString("hex")}`;
 
-// 	t.Run("generates a correct output script", func(t *testing.T) {
-// 		sigma := NewSigma(*tx, 0, 0, -1)
-// 		out := sigma.getTargetTxOut()
-// 		assert.NotNil(t, out)
-// 		asm := out.LockingScript.String()
-// 		signResp := sigma.Sign("your-test-signature", "your-test-address")
-// 		assert.NotNil(t, signResp.SignedTx)
-// 		signedTxOut := signResp.SignedTx.Outputs[0]
-// 		assert.NotNil(t, signedTxOut)
-// 		asmAfter := signedTxOut.LockingScript.String()
-// 		assert.NotEqual(t, asm, asmAfter)
-// 	})
+// 	const script = Script.fromASM(outputScriptAsm);
+// 	// Build a simple transaction with the output script
+// 	const txOut = { satoshis: 0, lockingScript: script } as TransactionOutput;
 
-// 	// ... Your other test cases ...
-// }
+// 	it("signs and verifies a message correctly", () => {
+// 	  // Create a new Sigma instance with the transaction and targetVout
+// 	  const tx = new Transaction(1, [], [txOut]);
+// 	  const sigma = new Sigma(tx, 0, 0);
+// 	  // Sign the message
+// 	  const { sigmaScript, address, signature, signedTx } =
+// 		sigma.sign(privateKey);
 
-// // ... Your other test functions ...
+// 	  // Verify the signature
+// 	  const isValid = sigma.verify();
+
+// 	  assert.strictEqual(isValid, true);
+// 	});
+
+// 	it("generates a correct output script", () => {
+// 	  // Create a new Sigma instance with the transaction and targetVout
+// 	  const tx = new Transaction(1, [], [txOut]);
+// 	  const sigma = new Sigma(tx, 0, 0);
+
+// 	  const out = sigma.transaction.outputs[0];
+
+// 	  const asm = out?.lockingScript.toASM();
+
+// 	  // Sign the message
+// 	  const { signedTx } = sigma.sign(privateKey);
+
+// 	  const asmAfter = signedTx
+// 		.outputs[0]
+// 		?.lockingScript
+// 		.toASM();
+
+// 	  assert.notEqual(asmAfter, asm);
+// 	});
+
+// 	it("signed tx is verified", () => {
+// 	  // Create a new Sigma instance with the transaction and targetVout
+// 	  const tx = new Transaction(1, [], [txOut]);
+// 	  const sigma = new Sigma(tx, 0, 0);
+
+// 	  // ... Before signing
+// 	  // console.log({ inputHashBeforeSigning: sigma.getInputHash().to_hex() });
+// 	  // console.log({ dataHashBeforeSigning: sigma.getDataHash().to_hex() });
+
+// 	  // Sign the message
+// 	  const { signedTx } = sigma.sign(privateKey);
+
+// 	  // ... After signing
+// 	  // console.log({ inputHashAfterSigning: sigma.getInputHash().to_hex() });
+// 	  // console.log({ dataHashAfterSigning: sigma.getDataHash().to_hex() });
+
+// 	  const inputHash = toHex(sigma.getInputHash());
+// 	  const dataHash = toHex(sigma.getDataHash());
+// 	  const messageHash = toHex(sigma.getMessageHash());
+
+// 	  const sigma2 = new Sigma(signedTx);
+
+// 	  //make sure these havent changed
+// 	  const inputHash2 = toHex(sigma2.getInputHash());
+// 	  const dataHash2 = toHex(sigma2.getDataHash());
+// 	  const messageHash2 = toHex(sigma2.getMessageHash());
+
+// 	  assert.strictEqual(inputHash2, inputHash);
+// 	  assert.strictEqual(dataHash2, dataHash);
+// 	  assert.strictEqual(messageHash2, messageHash);
+
+// 	  assert.strictEqual(sigma2.getSigInstanceCount(), 1);
+
+// 	  const isValid2 = sigma2.verify();
+// 	  assert.strictEqual(isValid2, true);
+// 	});
+
+// 	it("replace a dummy signature with a real one", () => {
+// 	  // This is useful for calculating accurate fees considering the size of the
+// 	  // signature
+
+// 	  // Sign before adding inputs to create a dummy signature
+// 	  const tx = new Transaction(1, [], [txOut]);
+// 	  const sigma = new Sigma(tx, 0, 0);
+
+// 	  // Get the hashes before adding inputs
+// 	  const inputHash = sigma.getInputHash();
+// 	  const dataHash = sigma.getDataHash();
+
+// 	  // add some inputs
+// 	  const txIn = {
+// 		sourceTXID: "810755d937913d4228e1a4d192046d96c0642e2678d6a90e1cb794b0c2aeb78c",
+// 		sourceOutputIndex: 0,
+// 		sequence: 0xffffffff,
+// 	  } as TransactionInput;
+
+// 	  tx.addInput(txIn);
+
+// 	  // input hash should change after adding inputs
+// 	  assert.notEqual(sigma.getInputHash(), inputHash);
+
+// 	  // sign again now that inputs have been added
+// 	  sigma.sign(privateKey);
+
+// 	  // data hash should change after replacing dummy signature
+// 	  assert.notEqual(sigma.getDataHash(), dataHash);
+
+// 	  assert.strictEqual(sigma.verify(), true);
+// 	});
+
+// 	it("specity an input to sign", () => {
+// 	  // This is useful for calculating accurate fees considering the size of the
+// 	  // signature
+
+// 	  const tx = new Transaction(1, [], [txOut]);
+// 	  // add some inputs
+// 	  const txIn = {
+// 		sourceTXID: "810755d937913d4228e1a4d192046d96c0642e2678d6a90e1cb794b0c2aeb78b",
+// 		sourceOutputIndex: 0,
+// 		sequence: 0xffffffff,
+// 	  } as TransactionInput;
+
+// 	  const txIn2 = {
+// 		sourceTXID: "810755d937913d4228e1a4d192046d96c0642e2678d6a90e1cb794b0c2aeb78c",
+// 		sourceOutputIndex: 0,
+// 		sequence: 0xffffffff,
+// 	  } as TransactionInput;
+
+// 	  tx.addInput(txIn);
+// 	  tx.addInput(txIn2);
+
+// 	  const sigma = new Sigma(tx, 0, 0, 1);
+// 	  // sign again now that inputs have been added
+// 	  sigma.sign(privateKey);
+// 	  assert.strictEqual(sigma.verify(), true);
+// 	});
+
+// 	it("create a user and platform signature on the same output", () => {
+// 	  // This is useful for calculating accurate fees
+// 	  // considering the size of the signature
+// 	  const tx = new Transaction(1, [], [txOut]);
+// 	  const sigma = new Sigma(tx, 0, 0);
+
+// 	  // sign the tx
+// 	  const { signedTx } = sigma.sign(privateKey);
+
+// 	  // verify the signature
+// 	  assert.strictEqual(sigma.verify(), true);
+
+// 	  // Create another signma instance on the same tx, and same output
+// 	  const sigma2 = new Sigma(signedTx, 0, 1);
+
+// 	  // add a second signature with a 2nd key
+// 	  sigma2.sign(privateKey2);
+
+// 	  assert.strictEqual(sigma2.verify(), true);
+
+// 	  assert.strictEqual(sigma2.getSigInstanceCount(), 2);
+
+// 	  // check the address for instance 1
+// 	  sigma2.setSigmaInstance(0);
+// 	  const address = sigma2.sig?.address;
+// 	  assert.strictEqual("1ACLHVPVnB8AmLCyD5hPQtPCSCccjiUn7H", address);
+
+// 	  // check the address for instance 2
+// 	  sigma2.setSigmaInstance(1);
+// 	  const address2 = sigma2.sig?.address;
+// 	  assert.strictEqual("1Cz3gyTgV7QgMoU6j51pvHdzeeapXfXDtA", address2);
+// 	});
+
+// 	it("validate sig from bundled 1sat lib", () => {
+// 	  const tx = Transaction.fromHex(
+// 		"0100000001d70d11131d80dcee954926de96d793585c6bc0ed69619a6cc761a20cef1b1bd7010000006a4730440220466ca5d42bd7a8bd2b6ea5770970b03a0c39fa29847f31e0d949dd36bf523b910220379d1c2718ae3300e833201b227ed8159c93f85bcc6eaea4028dafed2559fee24121036232d22ae556320f5a6516e6e75eab89b33760ccf7b3eb5b791a23883da6b1f5ffffffff020100000000000000a776a914c8fcb96f2f16175d37d602c438eb2f64e59e217788ac0063036f7264510a746578742f706c61696e000774657374696e67686a055349474d410342534d22314535533931716e6f4743586d36314d5931617842435a436d4d50414d5a3675457a41206798f75d8b2bc6b6f2b536a9702dac3533528574d6f46acd8e2747ba63a0e70e146adba068c93e2979d010baf9aa47a1daf501381620adc59a09e10508aff46e013015e16005000000001976a9148d3164e5ed6f5ae76d7cb3860b31af4f369e775d88ac00000000"
+// 	  );
+// 	  const sigma = new Sigma(tx, 0, 0);
+// 	  const isValid = sigma.verify();
+// 	  assert.strictEqual(isValid, true);
+// 	});
+
+// 	it("signs a message correctly with remote signing", async () => {
+// 	  const outputScriptAsm = `OP_0 OP_RETURN ${Buffer.from(
+// 		"pushdata1",
+// 		"utf-8"
+// 	  ).toString("hex")} ${Buffer.from("pushdata2", "utf-8").toString("hex")}`;
+
+// 	  const script = Script.fromASM(outputScriptAsm);
+// 	  const tx = new Transaction();
+// 	  const txOut = {
+// 		satoshis: 0,
+// 		lockingScript: script,
+// 	  } as TransactionOutput;
+
+// 	  tx.addOutput(txOut);
+
+// 	  const sigma = new Sigma(tx, 0, 0);
+
+// 	  // Call remoteSign method
+// 	  const result = await sigma.remoteSign("http://localhost:21000", {
+// 		key: "Authorization",
+// 		value: "Bearer mockToken",
+// 		type: "header",
+// 	  });
+
+// 	  // Check the result
+// 	  assert.strictEqual(result.address, mockAddress);
+// 	  assert.strictEqual(result.signature, mockSignature);
+// 	  assert.strictEqual(sigma.verify(), true);
+// 	  assert.strictEqual(sigma.sig?.address, mockAddress);
+// 	  assert.strictEqual(sigma.sig?.signature, mockSignature);
+// 	});
+//   });

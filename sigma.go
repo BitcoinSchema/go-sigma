@@ -1,24 +1,23 @@
 package sigma
 
 import (
-	"encoding/base64"
 	"encoding/binary"
-	"encoding/hex"
 	"fmt"
 	"strconv"
-	"strings"
 
-	"github.com/bitcoinschema/go-bitcoin/v2"
-	"github.com/libsv/go-bk/bec"
-	"github.com/libsv/go-bk/crypto"
-	"github.com/libsv/go-bt/v2"
-	"github.com/libsv/go-bt/v2/bscript"
+	bsm "github.com/bitcoin-sv/go-sdk/compat/bsm"
+	ec "github.com/bitcoin-sv/go-sdk/primitives/ec"
+	hash "github.com/bitcoin-sv/go-sdk/primitives/hash"
+	"github.com/bitcoin-sv/go-sdk/script"
+	"github.com/bitcoin-sv/go-sdk/transaction"
+	"github.com/bitcoin-sv/go-sdk/util"
 )
 
 type Algorithm string
 
 const Prefix = "SIGMA"
-const sigmaHex = "5349474d41"
+
+// const sigmaHex = "5349474d41"
 const (
 	BSM Algorithm = "BSM"
 )
@@ -38,7 +37,7 @@ type RemoteSigningResponse struct {
 
 type Sig struct {
 	Address    string
-	Signature  string
+	Signature  []byte
 	Algorithm  Algorithm
 	Vin        int
 	TargetVout int
@@ -46,21 +45,21 @@ type Sig struct {
 
 type SignResponse struct {
 	Sig
-	SigmaScript bscript.Script
-	SignedTx    bt.Tx
+	SigmaScript *script.Script
+	SignedTx    *transaction.Transaction
 }
 
 type Sigma struct {
-	inputHash     string
-	dataHash      string
-	transaction   *bt.Tx
+	inputHash     []byte
+	dataHash      []byte
+	transaction   *transaction.Transaction
 	sigmaInstance int
 	refVin        int
 	targetVout    int
 	sig           Sig
 }
 
-func NewSigma(transaction bt.Tx, targetVout, sigmaInstance, refVin int) *Sigma {
+func NewSigma(transaction transaction.Transaction, targetVout, sigmaInstance, refVin int) *Sigma {
 	return &Sigma{
 		transaction:   &transaction,
 		targetVout:    targetVout,
@@ -70,8 +69,8 @@ func NewSigma(transaction bt.Tx, targetVout, sigmaInstance, refVin int) *Sigma {
 }
 
 func (s *Sigma) SetHashes() {
-	s.inputHash = string(s.GetInputHash())
-	s.dataHash = string(s.getDataHash())
+	s.inputHash = s.GetInputHash()
+	s.dataHash = s.getDataHash()
 }
 
 func (s *Sigma) SetTargetVout(targetVout int) {
@@ -83,29 +82,27 @@ func (s *Sigma) SetSigmaInstance(sigmaInstance int) {
 }
 
 func (s *Sigma) GetMessageHash() []byte {
-	combinedBytes := append([]byte(s.inputHash), []byte(s.dataHash)...)
-	return crypto.Sha256d(combinedBytes)
+	combinedBytes := append(s.inputHash, s.dataHash...)
+	return hash.Sha256d(combinedBytes)
 }
 
-func (s *Sigma) Sign(privateKey *bec.PrivateKey) SignResponse {
+func (s *Sigma) Sign(privateKey *ec.PrivateKey) *SignResponse {
 
 	// Get the message hash to sign
+	s.SetHashes()
 	messageHash := s.GetMessageHash()
 
-	// Create a signer with the private key
-	pkBytes := privateKey.Serialise()
-	pkHex := hex.EncodeToString(pkBytes)
-	signature, err := bitcoin.SignMessage(pkHex, string(messageHash), false)
+	signature, err := bsm.SignMessage(privateKey, messageHash)
 	if err != nil {
 		fmt.Printf("error signing message: %v\n", err)
-		return SignResponse{}
+		return nil
 	}
 
 	// Get the address from the public key
-	address, err := bitcoin.GetAddressFromPubKey(privateKey.PubKey(), true)
+	add, err := script.NewAddressFromPublicKey(privateKey.PubKey(), true)
 	if err != nil {
 		fmt.Printf("error getting address from public key: %v\n", err)
-		return SignResponse{}
+		return nil
 	}
 
 	vin := s.refVin
@@ -113,55 +110,40 @@ func (s *Sigma) Sign(privateKey *bec.PrivateKey) SignResponse {
 		vin = s.targetVout
 	}
 
-	signedAsm := fmt.Sprintf(
-		"%s %x %x %s %x",
-		sigmaHex,
-		[]byte(BSM),
-		[]byte(address.AddressString),
-		signature,
-		[]byte(strconv.Itoa(vin)),
-	)
-
-	sigmaScript, err := bscript.NewFromASM(signedAsm)
-	if err != nil {
-		fmt.Printf("error creating script: %v\n", err)
-		return SignResponse{}
+	output := s.transaction.Outputs[s.targetVout]
+	hasOpReturn := false
+	for pos := 0; pos < len(*output.LockingScript); {
+		if op, err := output.LockingScript.ReadOp(&pos); err != nil {
+			fmt.Printf("error reading op: %v\n", err)
+			return nil
+		} else if op.Op == script.OpRETURN {
+			hasOpReturn = true
+			break
+		}
 	}
 
-	existingAsm := s.getTargetTxOut().LockingScript.String()
-	containsOpReturn := strings.Contains(existingAsm, "OP_RETURN")
-	separator := "OP_RETURN"
-	if containsOpReturn {
-		separator = "7c"
+	if hasOpReturn {
+		output.LockingScript.AppendPushData([]byte{'|'})
+	} else {
+		output.LockingScript.AppendOpcodes(script.OpRETURN)
 	}
+	output.LockingScript.AppendPushData([]byte(Prefix))
+	output.LockingScript.AppendPushData([]byte(BSM))
+	output.LockingScript.AppendPushData([]byte(add.AddressString))
+	output.LockingScript.AppendPushData(signature)
+	output.LockingScript.AppendPushData([]byte(strconv.Itoa(vin)))
 
-	newScriptAsm := fmt.Sprintf("%s %s %s", existingAsm, separator, signedAsm)
-
-	newScript, err := bscript.NewFromASM(newScriptAsm)
-	if err != nil {
-		fmt.Printf("error creating script: %v\n", err)
-		return SignResponse{}
+	s.sig = Sig{
+		Algorithm:  BSM,
+		Address:    add.AddressString,
+		Signature:  signature,
+		Vin:        vin,
+		TargetVout: s.targetVout,
 	}
-
-	signedTx := *s.transaction // Assumes transaction is a pointer, adjust as necessary
-	signedTxOut := &bt.Output{
-		Satoshis:      s.getTargetTxOut().Satoshis,
-		LockingScript: newScript,
-	}
-	signedTx.Outputs[s.targetVout] = signedTxOut
-
-	s.transaction = &signedTx
-
-	return SignResponse{
-		SigmaScript: *sigmaScript,
-		SignedTx:    signedTx,
-		Sig: Sig{
-			Algorithm:  BSM,
-			Address:    address.AddressString,
-			Signature:  base64.StdEncoding.EncodeToString([]byte(signature)),
-			Vin:        vin,
-			TargetVout: s.targetVout,
-		},
+	return &SignResponse{
+		SigmaScript: output.LockingScript,
+		SignedTx:    s.transaction,
+		Sig:         s.sig,
 	}
 }
 
@@ -171,51 +153,42 @@ func (s *Sigma) RemoteSign(keyHost string, authToken *AuthToken) (SignResponse, 
 }
 
 // GetSig gets the target instance and returns its values
-func (s *Sigma) GetSig(script *bscript.Script) (*Sig, error) {
-	output := s.getTargetTxOut()
-	outputScript := output.LockingScript
-	scriptChunks, err := bscript.DecodeStringParts(outputScript.String())
-	if err != nil {
-		return nil, err
-	}
-	var instances []SignResponse
-	for i, chunk := range scriptChunks {
-
-		// check if the chunk is the sigmaHex
-		if i == 0 && strings.EqualFold(string(chunk), sigmaHex) {
-
-			// decode from hex
-			algo := Algorithm(hex.EncodeToString(scriptChunks[i+1]))
-
-			address := hex.EncodeToString(scriptChunks[i+2])
-
-			signature := hex.EncodeToString(scriptChunks[i+3])
-
-			vin, err := strconv.Atoi(string(scriptChunks[i+4]))
-			if err != nil {
+func (s *Sigma) GetSig(scr *script.Script) (*Sig, error) {
+	occurrences := 0
+	for pos := 0; pos < len(*scr); {
+		if op, err := scr.ReadOp(&pos); err != nil {
+			return nil, err
+		} else if op.Op == script.OpRETURN || (op.Op == script.OpDATA1 && op.Data[0] == '|') {
+			if op, err = scr.ReadOp(&pos); err != nil {
 				return nil, err
 			}
-
-			instances = append(instances, SignResponse{
-
-				Sig: Sig{
-					Algorithm: algo,
-					Address:   address,
-					Signature: signature,
-					Vin:       vin,
-				},
-			})
-
-			// fast forward to the next possible instance position
-			// 3 fields + 1 extra for the "|" separator
-			i += 4
+			if op.Op == script.OpDATA5 && string(op.Data) == Prefix {
+				if occurrences == s.sigmaInstance {
+					if algoOp, err := scr.ReadOp(&pos); err != nil {
+						return nil, err
+					} else if addOp, err := scr.ReadOp(&pos); err != nil {
+						return nil, err
+					} else if sigOp, err := scr.ReadOp(&pos); err != nil {
+						return nil, err
+					} else if vinOp, err := scr.ReadOp(&pos); err != nil {
+						return nil, err
+					} else if vin, err := strconv.Atoi(string(vinOp.Data)); err != nil {
+						return nil, err
+					} else {
+						return &Sig{
+							Algorithm: Algorithm(string(algoOp.Data)),
+							Address:   string(addOp.Data),
+							Signature: sigOp.Data,
+							Vin:       vin,
+						}, nil
+					}
+				}
+				occurrences++
+			}
 		}
 	}
-	// if len(instances) == 0 {
-	// 	return this._sig
-	//  }
-	instance := instances[s.GetSigInstancePosition()]
-	return &instance.Sig, nil
+
+	return nil, fmt.Errorf("no signature found")
 }
 
 func (s *Sigma) Verify() bool {
@@ -229,9 +202,7 @@ func (s *Sigma) Verify() bool {
 
 	s.sig = *sig
 
-	msgHash := s.GetMessageHash()
-	msgHashHex := hex.EncodeToString(msgHash)
-	err = bitcoin.VerifyMessage(s.sig.Address, s.sig.Signature, msgHashHex)
+	err = bsm.VerifyMessage(s.sig.Address, s.sig.Signature, s.GetMessageHash())
 	if err != nil {
 		fmt.Printf("Error verifying signature: %v\n", err)
 		return false
@@ -247,12 +218,12 @@ func (s *Sigma) GetInputHash() []byte {
 	txIn := s.transaction.Inputs[vin]
 	if txIn != nil {
 		indexBytes := make([]byte, 4)
-		binary.LittleEndian.PutUint32(indexBytes, uint32(txIn.PreviousTxOutIndex))
-		outpointBytes := append(txIn.PreviousTxID(), indexBytes...)
-		return crypto.Sha256(outpointBytes)
+		binary.LittleEndian.PutUint32(indexBytes, uint32(txIn.SourceTxOutIndex))
+		outpointBytes := append(util.ReverseBytes(txIn.SourceTXID.CloneBytes()), indexBytes...)
+		return hash.Sha256(outpointBytes)
 	}
 	// return dummy hash or handle error
-	return crypto.Sha256(make([]byte, 32))
+	return hash.Sha256(make([]byte, 32))
 }
 
 func (s *Sigma) getDataHash() []byte {
@@ -267,52 +238,33 @@ func (s *Sigma) getDataHash() []byte {
 		return nil
 	}
 
-	script := output.LockingScript
-	scriptChunks := strings.Split(script.String(), " ")
-
-	// Define sigmaHex as a constant or variable if it's not already defined
-	// const sigmaHex = "5349474d41"
-
 	occurrences := 0
-	for i, chunk := range scriptChunks {
-		if strings.ToUpper(chunk) == sigmaHex {
-			if occurrences == s.sigmaInstance {
-				// The -1 accounts for either the OP_RETURN
-				// or "|" separator which is not signed
-				dataChunks := scriptChunks[:i-1]
-				dataScript, err := bscript.NewFromASM(strings.Join(dataChunks, " "))
-				if err != nil {
-					fmt.Printf("error creating script: %v\n", err)
-					return nil
-				}
-				scriptString := dataScript.String()
-				scriptBytes, err := hex.DecodeString(scriptString)
-				if err != nil {
-					fmt.Printf("error decoding script: %v\n", err)
-					return nil
-				}
-				return crypto.Sha256(scriptBytes)
-			}
-			occurrences++
+	prevPos := 0
+	for pos := 0; pos < len(*output.LockingScript); {
+		op, err := output.LockingScript.ReadOp(&pos)
+		if err != nil {
+			break
 		}
+
+		if op.Op == script.OpRETURN || (op.Op == script.OpDATA1 && op.Data[0] == '|') {
+			if op, err := output.LockingScript.ReadOp(&pos); err != nil {
+				break
+			} else if op.Op == script.OpDATA5 && string(op.Data) == Prefix {
+				if occurrences == s.sigmaInstance {
+					// The -1 accounts for either the OP_RETURN or "|" separator which is not signed
+					return hash.Sha256((*output.LockingScript)[:prevPos])
+				}
+				occurrences++
+			}
+		}
+		prevPos = pos
 	}
 
 	// If no endIndex found, return the hash for the entire script
-	dataScript, err := bscript.NewFromASM(strings.Join(scriptChunks, " "))
-	if err != nil {
-		fmt.Printf("error creating script: %v\n", err)
-		return nil
-	}
-	scriptString := dataScript.String()
-	scriptBytes, err := hex.DecodeString(scriptString)
-	if err != nil {
-		fmt.Printf("error decoding script: %v\n", err)
-		return nil
-	}
-	return crypto.Sha256(scriptBytes)
+	return hash.Sha256(*output.LockingScript)
 }
 
-func (s *Sigma) getTargetTxOut() *bt.Output {
+func (s *Sigma) getTargetTxOut() *transaction.TransactionOutput {
 	if s.transaction == nil {
 		return nil
 	}
@@ -326,37 +278,14 @@ func (s *Sigma) GetSigInstanceCount() int {
 		return 0
 	}
 
-	script := output.LockingScript
-	scriptChunks := strings.Split(script.String(), " ")
-
 	count := 0
-	for _, chunk := range scriptChunks {
-		if strings.ToUpper(chunk) == sigmaHex {
-			count++
+	if scriptChunks, err := script.DecodeScript(*output.LockingScript); err == nil {
+		for _, chunk := range scriptChunks {
+			if chunk.Op == script.OpDATA5 && string(chunk.Data) == Prefix {
+				count++
+			}
 		}
 	}
 
 	return count
-}
-
-func (s *Sigma) GetSigInstancePosition() int {
-	output := s.getTargetTxOut()
-	if output == nil {
-		fmt.Println("error getting target tx out")
-		return -1
-	}
-
-	script := output.LockingScript
-
-	asm, _ := script.ToASM()
-	scriptChunks := strings.Split(asm, " ")
-
-	for i, chunk := range scriptChunks {
-
-		if strings.EqualFold(chunk, sigmaHex) {
-			return i
-		}
-	}
-	fmt.Println("error getting sig instance position")
-	return -1 // Return -1 if sigmaHex is not found
 }

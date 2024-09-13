@@ -1,6 +1,7 @@
 package sigma
 
 import (
+	"encoding/hex"
 	"strconv"
 
 	"github.com/bitcoinschema/go-bpu"
@@ -44,7 +45,7 @@ func (s *Sig) FromTape(tape bpu.Tape, vout int) {
 		s.Address = *tape.Cell[startIndex+2].S
 	}
 	if tape.Cell[startIndex+3].B != nil {
-		s.Signature = *tape.Cell[startIndex+3].B
+		s.Signature, _ = hex.DecodeString(*tape.Cell[startIndex+3].H)
 	}
 	if tape.Cell[startIndex+4].S != nil {
 		vin, err := strconv.Atoi(*tape.Cell[startIndex+4].S)

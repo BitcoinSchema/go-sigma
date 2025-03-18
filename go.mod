@@ -1,10 +1,12 @@
 module github.com/bitcoinschema/go-sigma
 
-go 1.23.1
+go 1.24.0
+
+toolchain go1.24.1
 
 require (
-	github.com/bitcoin-sv/go-sdk v1.1.18
-	github.com/bitcoinschema/go-bpu v0.2.1
+	github.com/bitcoinschema/go-bpu v0.2.2
+	github.com/bsv-blockchain/go-sdk v1.1.22
 )
 
 require (
@@ -16,5 +18,5 @@ require (
 require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/stretchr/testify v1.10.0
-	golang.org/x/crypto v0.32.0 // indirect
+	golang.org/x/crypto v0.35.0 // indirect
 )

@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"strconv"
 
-	bsm "github.com/bitcoin-sv/go-sdk/compat/bsm"
-	ec "github.com/bitcoin-sv/go-sdk/primitives/ec"
-	hash "github.com/bitcoin-sv/go-sdk/primitives/hash"
-	"github.com/bitcoin-sv/go-sdk/script"
-	"github.com/bitcoin-sv/go-sdk/transaction"
-	"github.com/bitcoin-sv/go-sdk/util"
+	bsm "github.com/bsv-blockchain/go-sdk/compat/bsm"
+	ec "github.com/bsv-blockchain/go-sdk/primitives/ec"
+	hash "github.com/bsv-blockchain/go-sdk/primitives/hash"
+	"github.com/bsv-blockchain/go-sdk/script"
+	"github.com/bsv-blockchain/go-sdk/transaction"
+	"github.com/bsv-blockchain/go-sdk/util"
 )
 
 type Algorithm string
